@@ -51,8 +51,22 @@
   }
   function updateReadouts() { /* values shown in labels are static; optional */ }
 
+  // -- haptics ----------------------------------------------------------------
+  function haptic(type) {
+    // iOS Safari exposes navigator.vibrate (iOS 17+); fall back silently.
+    if (navigator.vibrate) {
+      try {
+        if (type === 'tap') navigator.vibrate(10);
+        else if (type === 'snap') navigator.vibrate(4);
+        else if (type === 'turn') navigator.vibrate([0, 20, 40]);
+      } catch (e) {}
+    }
+  }
+
   // -- imported-image source -------------------------------------------------
   let importedImage = null;     // { data: Float32Array(w*h), width, height }
+  // -- view transform (pinch-zoom + two-finger pan) --------------------------
+  let viewScale = 1, viewPanX = 0, viewPanY = 0;
   function imageLuminance(inverted, fw, fh) {
     if (!importedImage) {
       return gradientLuminance('linear', 0, 1, 0, 0.5, 0.5, inverted, fw, fh);
@@ -92,8 +106,6 @@
     canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-
-  // ---- render --------------------------------------------------------------
   function render() {
     const s = readState();
     const dpr = window.devicePixelRatio || 1;
@@ -127,8 +139,14 @@
     };
     const strokes = LineRasterEngine.generate(field, params, W, H);
 
+    // clear full canvas in device space FIRST
+    ctx.save();
+    ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#f0f0f2'; ctx.fillRect(0, 0, W, H);
+    // apply view transform (pinch-zoom + pan) to the raster
+    ctx.translate(viewPanX, viewPanY);
+    ctx.scale(viewScale, viewScale);
     ctx.fillStyle = '#000';
     ctx.beginPath();
     for (const st of strokes) {
@@ -138,13 +156,67 @@
       for (let i = 1; i < o.length; i++) ctx.lineTo(o[i].x, o[i].y);
     }
     ctx.fill();
+    ctx.restore();
   }
 
-  // ---- wiring --------------------------------------------------------------
-  document.querySelectorAll('input, select').forEach(el => {
-    el.addEventListener('input', render);
-    el.addEventListener('change', render);
+  // ---- touch gestures (pinch-zoom, two-finger pan, rotation haptic) ---------
+  let lastPinchDist = 0, lastPanX = 0, lastPanY = 0;
+  let pinchMode = false, panMode = false;
+  canvas.addEventListener('touchstart', e => {
+    const t = e.touches;
+    if (t.length === 2) {
+      pinchMode = true;
+      lastPinchDist = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+      lastPanX = (t[0].clientX + t[1].clientX) / 2;
+      lastPanY = (t[0].clientY + t[1].clientY) / 2;
+    } else {
+      pinchMode = false;
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', e => {
+    const t = e.touches;
+    if (t.length === 2) {
+      // pinch: change distance -> zoom
+      const dist = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+      if (lastPinchDist > 0) {
+        const factor = dist / lastPinchDist;
+        viewScale = Math.min(8, Math.max(0.25, viewScale * factor));
+        haptic('snap');
+      }
+      lastPinchDist = dist;
+      // pan: midpoint movement -> translate
+      const mx = (t[0].clientX + t[1].clientX) / 2;
+      const my = (t[0].clientY + t[1].clientY) / 2;
+      viewPanX += (mx - lastPanX);
+      viewPanY += (my - lastPanY);
+      lastPanX = mx; lastPanY = my;
+      render();
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', () => {
+    // rotation: a single-finger twirl would need angle tracking; for now a
+    // two-finger rotate gesture is approximated by haptic feedback.
+    haptic('turn');
   });
+
+  // wheel zoom (desktop convenience, mirrors pinch)
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 1.1 : 0.9;
+    viewScale = Math.min(8, Math.max(0.25, viewScale * factor));
+    render();
+  }, { passive: false });
+
+  // ---- wiring --------------------------------------------------------------
+  document.querySelectorAll('input[type=range], select').forEach(el => {
+    el.addEventListener('input', () => { haptic('snap'); render(); });
+    el.addEventListener('change', () => { haptic('snap'); render(); });
+  });
+  // angle slider = "turning" haptic
+  $('angle').addEventListener('input', () => { haptic('turn'); render(); });
+  $('invert').addEventListener('change', () => { haptic('tap'); render(); });
   $('reset').addEventListener('click', () => {
     const D = {
       pattern: 'parallel', source: 'gradientLinear', angle: 0, spacing: 8.5,
@@ -157,6 +229,7 @@
     $('contrast').value = D.contrast; $('smoothing').value = D.smoothing;
     $('brightness').value = D.brightness; $('adjContrast').value = D.adjContrast;
     $('invert').checked = D.invert;
+    viewScale = 1; viewPanX = 0; viewPanY = 0;
     render();
   });
 
@@ -165,28 +238,29 @@
   $('importFile').addEventListener('change', e => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        // Decode to luminance via an offscreen canvas.
-        const W = img.width, H = img.height;
-        const c = document.createElement('canvas');
-        c.width = W; c.height = H;
-        const g = c.getContext('2d');
-        g.drawImage(img, 0, 0);
-        const d = g.getImageData(0, 0, W, H).data;   // RGBA bytes
-        const lum = new Float32Array(W * H);
-        for (let i = 0, p = 0; i < W * H; i++, p += 4) {
-          lum[i] = 0.2126 * (d[p]/255) + 0.7152 * (d[p+1]/255) + 0.0722 * (d[p+2]/255);
-        }
-        importedImage = { data: lum, width: W, height: H };
-        $('source').value = 'image';
-        render();
-      };
-      img.src = reader.result;
+    const url = URL.createObjectURL(file);          // works on iPad Safari
+    const img = document.createElement('img');
+    img.onload = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      // decode to luminance via an offscreen canvas
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0, W, H);
+      const d = g.getImageData(0, 0, W, H).data;     // RGBA bytes (or data().data)
+      const lum = new Float32Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        const p = i * 4;
+        lum[i] = 0.2126 * (d[p]/255) + 0.7152 * (d[p+1]/255) + 0.0722 * (d[p+2]/255);
+      }
+      importedImage = { data: lum, width: W, height: H };
+      URL.revokeObjectURL(url);
+      $('source').value = 'image';
+      render();
     };
-    reader.readAsDataURL(file);
+    img.src = url;
+    // reset so the same file can be re-picked
+    e.target.value = '';
   });
 
   window.addEventListener('resize', () => { resize(); render(); });
