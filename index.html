@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halftone Studio — Line</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1>Halftone Studio <span class="mode">Line</span></h1>
+
+      <label>Pattern</label>
+      <select id="pattern">
+        <option value="parallel">Lines</option>
+        <option value="grid">Grid</option>
+        <option value="concentricCircle">Circles</option>
+        <option value="concentricSquare">Squares</option>
+        <option value="concentricHex">Hexagons</option>
+        <option value="spiral">Spiral</option>
+        <option value="honeycomb">Honeycomb</option>
+      </select>
+
+      <label>Source</label>
+      <select id="source">
+        <option value="gradientLinear">Linear Gradient</option>
+        <option value="gradientRadial">Radial Gradient</option>
+        <option value="noise">Noise</option>
+      </select>
+
+    <div>
+      <label>Angle <span id="angleV">0</span>°</label>
+      <input type="range" id="angle" min="0" max="180" value="0" step="1">
+
+      <label>Spacing <span id="spacingV">8.5</span></label>
+      <input type="range" id="spacing" min="4" max="40" value="8.5" step="0.5">
+
+      <label>Min Thickness <span id="minV">0</span></label>
+      <input type="range" id="minThick" min="0" max="20" value="0" step="0.5">
+
+      <label>Max Thickness <span id="maxV">14</span></label>
+      <input type="range" id="maxThick" min="1" max="40" value="14" step="0.5">
+
+      <label>Contrast <span id="contrastV">0.5</span></label>
+      <input type="range" id="contrast" min="0" max="4" value="0.5" step="0.05">
+
+      <label>Smoothing <span id="smoothV">0</span></label>
+      <input type="range" id="smoothing" min="0" max="0.04" value="0" step="0.001">
+
+      <label>Brightness <span id="brightV">0.44</span></label>
+      <input type="range" id="brightness" min="-1" max="1" value="0.44" step="0.02">
+
+      <label>Contrast(adj) <span id="adjContrastV">1.0</span></label>
+      <input type="range" id="adjContrast" min="0.2" max="4" value="1.0" step="0.05">
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="invert"> Invert</label>
+      <button id="reset" type="button">Reset</button>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+</div>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

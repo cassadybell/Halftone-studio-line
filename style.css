@@ -1,0 +1,34 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #1b1d22; color: #e8e8ec; display: flex; overflow: hidden;
+}
+#app { display: flex; width: 100%; height: 100%; }
+
+#panel {
+  width: 280px; min-width: 280px; background: #23262d; padding: 14px 16px;
+  overflow-y: auto; border-right: 1px solid #33363e;
+}
+h1 { font-size: 16px; margin-bottom: 14px; color: #fff; }
+h1 .mode {
+  font-size: 11px; background: #3a6df0; color: #fff; padding: 2px 7px;
+  border-radius: 10px; vertical-align: middle; margin-left: 4px;
+}
+label { display: block; margin: 10px 0 4px; color: #b8bcc6; }
+label span { color: #7dd8a0; font-variant-numeric: tabular-nums; }
+
+select {
+  width: 100%; padding: 5px 8px; border-radius: 6px;
+  border: 1px solid #3a3d47; background: #2b2f38; color: #fff; font-size: 13px;
+}
+input[type="range"] { width: 100%; accent-color: #3a6df0; margin: 3px 0; }
+.checks { margin-top: 16px; display: flex; align-items: center; gap: 14px; }
+.checks input { accent-color: #3a6df0; }
+button {
+  padding: 6px 14px; border-radius: 6px; border: 1px solid #3a3d47;
+  background: #2a2f3a; color: #fff; cursor: pointer; font-size: 13px;
+}
+button:hover { background: #333a47; }
+
+#canvas { flex: 1; display: block; background: #fff; }
