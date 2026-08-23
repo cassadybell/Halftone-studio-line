@@ -31,4 +31,20 @@ button {
 }
 button:hover { background: #333a47; }
 
-#canvas { flex: 1; display: block; background: #fff; }
+#canvasArea {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  min-width: 0;
+}
+#canvas {
+  /* Square artboard, centered. */
+  width: min(80vmin, 100%, 560px);
+  height: min(80vmin, 100%, 560px);
+  aspect-ratio: 1 / 1;
+  background: #fff;
+  border: 1px solid #3a3d47;
+}
+.importrow { margin-top: 14px; }

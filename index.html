@@ -24,6 +24,7 @@
 
       <label>Source</label>
       <select id="source">
+        <option value="image">Image</option>
         <option value="gradientLinear">Linear Gradient</option>
         <option value="gradientRadial">Radial Gradient</option>
         <option value="noise">Noise</option>
@@ -59,9 +60,16 @@
       <label><input type="checkbox" id="invert"> Invert</label>
       <button id="reset" type="button">Reset</button>
     </div>
+
+    <div class="importrow">
+      <button id="importBtn" type="button">Import Image…</button>
+      <input type="file" id="importFile" accept="image/*" style="display:none">
+    </div>
   </div>
 
-  <canvas id="canvas"></canvas>
+  <div id="canvasArea">
+    <canvas id="canvas"></canvas>
+  </div>
 </div>
 <script src="engine.js"></script>
 <script src="app.js"></script>

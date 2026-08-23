@@ -51,6 +51,39 @@
   }
   function updateReadouts() { /* values shown in labels are static; optional */ }
 
+  // -- imported-image source -------------------------------------------------
+  let importedImage = null;     // { data: Float32Array(w*h), width, height }
+  function imageLuminance(inverted, fw, fh) {
+    if (!importedImage) {
+      return gradientLuminance('linear', 0, 1, 0, 0.5, 0.5, inverted, fw, fh);
+    }
+    const W = importedImage.width, H = importedImage.height;
+    const out = new Float32Array(fw * fh).fill(1.0);   // white outside source
+    // contain/letterbox: fit the image inside the field preserving aspect.
+    const sAspect = W / Math.max(1, H);
+    const oAspect = fw / Math.max(1, fh);
+    let scale, offX = 0, offY = 0;
+    if (sAspect >= oAspect) {
+      scale = fh / H; offX = (fw - W * scale) / 2;
+    } else {
+      scale = fw / W; offY = (fh - H * scale) / 2;
+    }
+    const src = importedImage.data;
+    for (let y = 0; y < fh; y++) {
+      for (let x = 0; x < fw; x++) {
+        const srcX = (x - offX) / scale, srcY = (y - offY) / scale;
+        if (srcX >= 0 && srcY >= 0 && srcX < W && srcY < H) {
+          const px = Math.min(Math.floor(srcX), W - 1);
+          const py = Math.min(Math.floor(srcY), H - 1);
+          let l = src[py * W + px];
+          if (inverted) l = 1 - l;
+          out[y * fw + x] = l;
+        }
+      }
+    }
+    return new LuminanceField(fw, fh, out);
+  }
+
   // ---- resize --------------------------------------------------------------
   function resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -72,7 +105,8 @@
     const fw = Math.max(16, Math.floor(W * scale));
     const fh = Math.max(16, Math.floor(H * scale));
     let field;
-    if (s.source === 'gradientRadial') field = gradientLuminance('radial', 0, 1, 0, 0.5, 0.5, s.invert, fw, fh);
+    if (s.source === 'image') field = imageLuminance(s.invert, fw, fh);
+    else if (s.source === 'gradientRadial') field = gradientLuminance('radial', 0, 1, 0, 0.5, 0.5, s.invert, fw, fh);
     else if (s.source === 'noise') field = noiseLuminance(42, 6, s.invert, fw, fh);
     else field = gradientLuminance('linear', 0, 1, 0, 0.5, 0.5, s.invert, fw, fh);
 
@@ -124,6 +158,35 @@
     $('brightness').value = D.brightness; $('adjContrast').value = D.adjContrast;
     $('invert').checked = D.invert;
     render();
+  });
+
+  // import image: button triggers hidden file input
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        // Decode to luminance via an offscreen canvas.
+        const W = img.width, H = img.height;
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, W, H).data;   // RGBA bytes
+        const lum = new Float32Array(W * H);
+        for (let i = 0, p = 0; i < W * H; i++, p += 4) {
+          lum[i] = 0.2126 * (d[p]/255) + 0.7152 * (d[p+1]/255) + 0.0722 * (d[p+2]/255);
+        }
+        importedImage = { data: lum, width: W, height: H };
+        $('source').value = 'image';
+        render();
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
 
   window.addEventListener('resize', () => { resize(); render(); });
