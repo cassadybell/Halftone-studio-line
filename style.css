@@ -46,5 +46,11 @@ button:hover { background: #333a47; }
   aspect-ratio: 1 / 1;
   background: #fff;
   border: 1px solid #3a3d47;
+  /* CRITICAL: let the JS own all touch here so Safari doesn't scroll/zoom the
+     whole page when fingers are on the artboard. */
+  touch-action: none;
 }
+/* Disable page-level pinch/scroll (Safari rubber-band) outside the panel too,
+   so gestures only affect the artboard. */
+html, body { overscroll-behavior: none; }
 .importrow { margin-top: 14px; }

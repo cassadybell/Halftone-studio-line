@@ -52,21 +52,43 @@
   function updateReadouts() { /* values shown in labels are static; optional */ }
 
   // -- haptics ----------------------------------------------------------------
+  // iPad Safari: navigator.vibrate is often a silent no-op (no motor for the
+  // Vibration API). Web Haptics / contact-haptic API (navigator.haptics) DOES
+  // produce Taptic feedback on iOS 17+. Try CHAPI, fall back to Vibration API,
+  // and finally a tiny visual flash so gestures ALWAYS give feedback.
+  const HAPTIC_MS = { tap: 15, snap: 8, turn: 70 };
   function haptic(type) {
-    // iOS Safari exposes navigator.vibrate (iOS 17+); fall back silently.
-    if (navigator.vibrate) {
-      try {
-        if (type === 'tap') navigator.vibrate(10);
-        else if (type === 'snap') navigator.vibrate(4);
-        else if (type === 'turn') navigator.vibrate([0, 20, 40]);
-      } catch (e) {}
-    }
+    try {
+      const H = typeof navigator !== 'undefined' ? navigator.haptics : undefined;
+      if (H && typeof H.impact === 'function') {
+        // WebHaptics impact feedback (selection/light/medium/heavy)
+        H.impact(type === 'turn' ? 'medium' : 'light');
+        return;
+      }
+      if (H && typeof H.createFeedbackPattern === 'function') {
+        const pat = H.createFeedbackPattern(type === 'turn' ? 'impactMedium' : 'impactLight');
+        pat && H.startPlaying(pat);
+        return;
+      }
+    } catch (e) {}
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(HAPTIC_MS[type] || 10);
+      }
+    } catch (e) {}
+    visualFlash(type);
+  }
+  // Visual fallback so gestures give feedback even with no motor.
+  function visualFlash() {
+    const el = canvas;
+    el.style.boxShadow = '0 0 0 2px rgba(58,109,240,0.6)';
+    setTimeout(() => { el.style.boxShadow = ''; }, 90);
   }
 
   // -- imported-image source -------------------------------------------------
   let importedImage = null;     // { data: Float32Array(w*h), width, height }
-  // -- view transform (pinch-zoom + two-finger pan) --------------------------
-  let viewScale = 1, viewPanX = 0, viewPanY = 0;
+  // -- view transform (pinch-zoom + two-finger pan + rotation) ------------------
+  let viewScale = 1, viewPanX = 0, viewPanY = 0, viewRot = 0;   // viewRot degrees
   function imageLuminance(inverted, fw, fh) {
     if (!importedImage) {
       return gradientLuminance('linear', 0, 1, 0, 0.5, 0.5, inverted, fw, fh);
@@ -144,9 +166,12 @@
     ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = '#f0f0f2'; ctx.fillRect(0, 0, W, H);
-    // apply view transform (pinch-zoom + pan) to the raster
-    ctx.translate(viewPanX, viewPanY);
+    // apply view transform (pinch-zoom + pan + rotation) to the raster
+    const cxm = W / 2, cym = H / 2;
+    ctx.translate(viewPanX + cxm, viewPanY + cym);
+    ctx.rotate(viewRot * Math.PI / 180);
     ctx.scale(viewScale, viewScale);
+    ctx.translate(-cxm, -cym);
     ctx.fillStyle = '#000';
     ctx.beginPath();
     for (const st of strokes) {
@@ -159,47 +184,91 @@
     ctx.restore();
   }
 
-  // ---- touch gestures (pinch-zoom, two-finger pan, rotation haptic) ---------
-  let lastPinchDist = 0, lastPanX = 0, lastPanY = 0;
-  let pinchMode = false, panMode = false;
+  // ---- touch gestures (pinch-zoom + rotate + 1/2-finger pan) ----------------
+  // Uses passive:false + preventDefault so the PAGE doesn't scroll/zoom when
+  // touching the artboard — the artboard "owns" the touch.
+  let lastPinchDist = 0, lastAngle = 0, lastPanX = 0, lastPanY = 0;
+  let gestureActive = false;
+
+  function midAndAngle(t0, t1) {
+    const mx = (t0.clientX + t1.clientX) / 2, my = (t0.clientY + t1.clientY) / 2;
+    const ang = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX) * 180 / Math.PI;
+    return { mx, my, ang };
+  }
+
   canvas.addEventListener('touchstart', e => {
+    if (e.target !== canvas) return;            // only when fingers on the artboard
     const t = e.touches;
     if (t.length === 2) {
-      pinchMode = true;
+      e.preventDefault();
+      gestureActive = true;
+      const g = midAndAngle(t[0], t[1]);
       lastPinchDist = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-      lastPanX = (t[0].clientX + t[1].clientX) / 2;
-      lastPanY = (t[0].clientY + t[1].clientY) / 2;
-    } else {
-      pinchMode = false;
+      lastAngle = g.ang;
+      lastPanX = g.mx; lastPanY = g.my;
     }
-  }, { passive: true });
+  }, { passive: false });
 
   canvas.addEventListener('touchmove', e => {
+    if (e.target !== canvas) return;
     const t = e.touches;
     if (t.length === 2) {
-      // pinch: change distance -> zoom
+      e.preventDefault();                        // stop page scroll/move
+      const g = midAndAngle(t[0], t[1]);
       const dist = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+      // pinch -> zoom
       if (lastPinchDist > 0) {
         const factor = dist / lastPinchDist;
         viewScale = Math.min(8, Math.max(0.25, viewScale * factor));
-        haptic('snap');
       }
-      lastPinchDist = dist;
-      // pan: midpoint movement -> translate
-      const mx = (t[0].clientX + t[1].clientX) / 2;
-      const my = (t[0].clientY + t[1].clientY) / 2;
-      viewPanX += (mx - lastPanX);
-      viewPanY += (my - lastPanY);
-      lastPanX = mx; lastPanY = my;
+      // angle change -> rotate artboard (only when actual turning)
+      let dA = g.ang - lastAngle;
+      if (dA > 180) dA -= 360; else if (dA < -180) dA += 360;
+      viewRot += dA;
+      // midpoint movement -> pan
+      viewPanX += (g.mx - lastPanX);
+      viewPanY += (g.my - lastPanY);
+      lastPinchDist = dist; lastAngle = g.ang;
+      lastPanX = g.mx; lastPanY = g.my;
+      haptic('snap');
+      render();
+    } else if (t.length === 1 && gestureActive) {
+      // one-finger slide after a pinch = continue pan; or a lone one-finger drag = pan
+      e.preventDefault();
+      viewPanX += (t[0].clientX - lastPanX);
+      viewPanY += (t[0].clientY - lastPanY);
+      lastPanX = t[0].clientX; lastPanY = t[0].clientY;
       render();
     }
-  }, { passive: true });
+  }, { passive: false });
 
-  canvas.addEventListener('touchend', () => {
-    // rotation: a single-finger twirl would need angle tracking; for now a
-    // two-finger rotate gesture is approximated by haptic feedback.
-    haptic('turn');
+  canvas.addEventListener('touchend', e => {
+    if (e.target !== canvas) return;
+    if (e.touches.length === 0) {
+      gestureActive = false;
+      haptic('turn');                            // turning/rotation end feedback
+    }
   });
+
+  // One-finger pan alone (start with 1 touch): pan without zoom/rotate.
+  canvas.addEventListener('touchstart', oneFingerStart, { passive: false });
+  function oneFingerStart(e) {
+    if (e.touches.length === 1 && !gestureActive) {
+      const t0 = e.touches[0];
+      lastPanX = t0.clientX; lastPanY = t0.clientY;
+    }
+  }
+  canvas.addEventListener('touchmove', oneFingerMove, { passive: false });
+  function oneFingerMove(e) {
+    if (e.touches.length === 1 && !gestureActive) {
+      e.preventDefault();
+      const t0 = e.touches[0];
+      viewPanX += (t0.clientX - lastPanX);
+      viewPanY += (t0.clientY - lastPanY);
+      lastPanX = t0.clientX; lastPanY = t0.clientY;
+      render();
+    }
+  }
 
   // wheel zoom (desktop convenience, mirrors pinch)
   canvas.addEventListener('wheel', e => {
