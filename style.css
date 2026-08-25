@@ -54,3 +54,6 @@ button:hover { background: #333a47; }
    so gestures only affect the artboard. */
 html, body { overscroll-behavior: none; }
 .importrow { margin-top: 14px; }
+.importrow .sec { font-size: 12px; color: #8a90a0; margin-top: 8px; }
+#importrow .sec { font-size: 12px; color: #8a90a0; }
+#importrow label.sec { margin: 10px 0 2px; }

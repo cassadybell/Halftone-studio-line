@@ -46,10 +46,31 @@
       min: parseFloat($('minThick').value), max: parseFloat($('maxThick').value),
       contrast: parseFloat($('contrast').value), smooth: parseFloat($('smoothing').value),
       bright: parseFloat($('brightness').value), adjC: parseFloat($('adjContrast').value),
-      invert: $('invert').checked
+      invert: $('invert').checked,
+      // distortions
+      rand: parseFloat($('rand').value), waveAmp: parseFloat($('waveAmp').value),
+      waveFreq: parseFloat($('waveFreq').value), waveAngle: parseFloat($('waveAngle').value),
+      twist: parseFloat($('twist').value), twistFreq: parseFloat($('twistFreq').value),
+      zigAmp: parseFloat($('zigAmp').value), zigFreq: parseFloat($('zigFreq').value)
     };
   }
-  function updateReadouts() { /* values shown in labels are static; optional */ }
+  function updateReadouts(s) {
+    $('angleV').textContent = s.angle; $('spacingV').textContent = s.spacing;
+    $('minV').textContent = s.min; $('maxV').textContent = s.max;
+    $('contrastV').textContent = s.contrast; $('smoothV').textContent = s.smooth;
+    $('brightV').textContent = s.bright; $('adjContrastV').textContent = s.adjC;
+    $('randV').textContent = s.rand; $('waveAV').textContent = s.waveAmp;
+    $('waveFV').textContent = s.waveFreq; $('waveAngV').textContent = s.waveAngle;
+    $('twistV').textContent = s.twist; $('twistFV').textContent = s.twistFreq;
+    $('zigAV').textContent = s.zigAmp; $('zigFV').textContent = s.zigFreq;
+  }
+  function buildDistortion(s) {
+    return new DistortionParameters({
+      randomization: s.rand, waveAmplitude: s.waveAmp, waveFrequency: s.waveFreq,
+      waveAngleDegrees: s.waveAngle, twistStrength: s.twist, twistFrequency: s.twistFreq,
+      zigzagAmplitude: s.zigAmp, zigzagFrequency: s.zigFreq
+    });
+  }
 
   // -- haptics ----------------------------------------------------------------
   // iPad Safari: navigator.vibrate is often a silent no-op (no motor for the
@@ -157,9 +178,10 @@
       angleDegrees: s.angle, spacing: s.spacing, minThickness: s.min,
       maxThickness: s.max, contrast: s.contrast, smoothing: s.smooth,
       alignment: 'center', pattern: s.pattern,
-      distortion: new DistortionParameters(), spiralTurns: 2
+      distortion: buildDistortion(s), spiralTurns: 2
     };
     const strokes = LineRasterEngine.generate(field, params, W, H);
+    updateReadouts(s);
 
     // clear full canvas in device space FIRST
     ctx.save();
@@ -182,6 +204,74 @@
     }
     ctx.fill();
     ctx.restore();
+  }
+
+  // ---- export (SVG vector + PNG raster) ------------------------------------
+  function buildGeometry(W, H) {
+    const s = readState();
+    const cap = 1200;
+    const scale = Math.min(1, cap / Math.max(W, H));
+    const fw = Math.max(16, Math.floor(W * scale));
+    const fh = Math.max(16, Math.floor(H * scale));
+    let field;
+    if (s.source === 'image') field = imageLuminance(s.invert, fw, fh);
+    else if (s.source === 'gradientRadial') field = gradientLuminance('radial', 0, 1, 0, 0.5, 0.5, s.invert, fw, fh);
+    else if (s.source === 'noise') field = noiseLuminance(42, 6, s.invert, fw, fh);
+    else field = gradientLuminance('linear', 0, 1, 0, 0.5, 0.5, s.invert, fw, fh);
+    if (s.bright !== 0 || s.adjC !== 1) {
+      const vals = field.values;
+      for (let i = 0; i < vals.length; i++) vals[i] = clamp((vals[i] - 0.5) * s.adjC + 0.5 + s.bright, 0, 1);
+      field = new LuminanceField(field.width, field.height, vals);
+    }
+    const params = { angleDegrees: s.angle, spacing: s.spacing, minThickness: s.min,
+      maxThickness: s.max, contrast: s.contrast, smoothing: s.smooth,
+      alignment: 'center', pattern: s.pattern,
+      distortion: buildDistortion(s), spiralTurns: 2 };
+    return LineRasterEngine.generate(field, params, W, H);
+  }
+
+  function exportSVG() {
+    const W = 1200, H = 1200, s = readState();
+    const strokes = buildGeometry(W, H);
+    let d = '';
+    for (const st of strokes) {
+      const o = st.outline; if (o.length < 3) continue;
+      let p = 'M' + o[0].x.toFixed(2) + ' ' + o[0].y.toFixed(2);
+      for (let i = 1; i < o.length; i++) p += 'L' + o[i].x.toFixed(2) + ' ' + o[i].y.toFixed(2);
+      p += 'Z';
+      d += '<path d="' + p + '" fill="' + (s.invert ? '#fff' : '#000') + '"/>';
+    }
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H +
+      '" viewBox="0 0 ' + W + ' ' + H + '">' +
+      '<rect width="100%" height="100%" fill="' + (s.invert ? '#000' : '#fff') + '"/>' + d + '</svg>';
+    downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), 'halftone-line.svg');
+    haptic('tap');
+  }
+
+  function exportPNG() {
+    const W = 1200, H = 1200, s = readState();
+    const strokes = buildGeometry(W, H);
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    g.fillStyle = s.invert ? '#000' : '#fff'; g.fillRect(0, 0, W, H);
+    g.fillStyle = s.invert ? '#fff' : '#000';
+    g.beginPath();
+    for (const st of strokes) {
+      const o = st.outline; if (o.length < 3) continue;
+      g.moveTo(o[0].x, o[0].y);
+      for (let i = 1; i < o.length; i++) g.lineTo(o[i].x, o[i].y);
+    }
+    g.fill();
+    c.toBlob(b => { if (b) downloadBlob(b, 'halftone-line.png'); });
+    haptic('tap');
+  }
+
+  function downloadBlob(blob, name) {
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
   }
 
   // ---- touch gestures (pinch-zoom + rotate + 1/2-finger pan) ----------------
@@ -286,11 +376,14 @@
   // angle slider = "turning" haptic
   $('angle').addEventListener('input', () => { haptic('turn'); render(); });
   $('invert').addEventListener('change', () => { haptic('tap'); render(); });
+  $('exportSvg').addEventListener('click', () => exportSVG());
+  $('exportPng').addEventListener('click', () => exportPNG());
   $('reset').addEventListener('click', () => {
     const D = {
       pattern: 'parallel', source: 'gradientLinear', angle: 0, spacing: 8.5,
       min: 0, max: 14, contrast: 0.5, smoothing: 0, brightness: 0.44, adjContrast: 1.0,
-      invert: false
+      invert: false, rand: 0, waveAmp: 0, waveFreq: 0, waveAngle: 0,
+      twist: 0, twistFreq: 0, zigAmp: 0, zigFreq: 0
     };
     $('pattern').value = D.pattern; $('source').value = D.source;
     $('angle').value = D.angle; $('spacing').value = D.spacing;
@@ -298,7 +391,10 @@
     $('contrast').value = D.contrast; $('smoothing').value = D.smoothing;
     $('brightness').value = D.brightness; $('adjContrast').value = D.adjContrast;
     $('invert').checked = D.invert;
-    viewScale = 1; viewPanX = 0; viewPanY = 0;
+    $('rand').value = D.rand; $('waveAmp').value = D.waveAmp; $('waveFreq').value = D.waveFreq;
+    $('waveAngle').value = D.waveAngle; $('twist').value = D.twist; $('twistFreq').value = D.twistFreq;
+    $('zigAmp').value = D.zigAmp; $('zigFreq').value = D.zigFreq;
+    viewScale = 1; viewPanX = 0; viewPanY = 0; viewRot = 0;
     render();
   });
 
