@@ -259,7 +259,7 @@ class LineRasterEngine {
         out.push({ x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t });
       }
     }
-    if (first) out.push(first);
+    if (first) out.push(first);   // close the loop exactly (match Swift)
     return out;
   }
 
